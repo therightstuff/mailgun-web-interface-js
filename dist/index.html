@@ -1,0 +1,525 @@
+<html>
+    <head>
+        <title>Mailgun Web Interface</title>
+        <link rel="stylesheet" href="css/toastr.min.css" />
+
+        <script src="js/jquery-3.1.1.min.js"></script>
+
+        <script src="js/mailgunLocal.js"></script>
+
+        <script src="js/toastr.min.js"></script>
+
+        <script language="javascript">
+            const CREDENTIALS = 'credentials';
+            const LOCK_STATE = 'lockState';
+            const TEST_EMAIL_ADDRESS = 'testEmailAddress';
+            const ACTION_BUTTONS = `
+                <tr>
+                    <td colspan="4" align="center">
+                        <button class="bulk-send-button" onclick="bulkSend()">Bulk Send</button>
+                        <button class="download-failure-report-button" onclick="downloadFailureReport()">Download Failure Report</button>
+                    </td>
+                </tr>`;
+
+            let credentials = {};
+            let lockState = "";
+            let testEmailAddress = "";
+            let targets = null;
+            let testMailVerified = false;
+
+            function loadWithDefault(name, defaultValues) {
+                try {
+                    return JSON.parse(localStorage[name]);
+                } catch (e) {
+                    toastr.error(`Failed to load ${name}`);
+                    console.error(`localStorage[${name}]:`);
+                    console.error(localStorage[name]);
+                    return defaultValues;
+                }
+            }
+
+            function save(name, val) {
+                localStorage[name] = JSON.stringify(val);
+            }
+
+            function lockUnlock() {
+                lockState = !lockState;
+                save(LOCK_STATE, lockState);
+                lockUnlockFields();
+            }
+
+            function lockUnlockFields() {
+                if (lockState) {
+                    $('#configuration-lock-button').text("Unlock");
+                    $("#domain").prop("disabled", true);
+                    $("#from").prop("disabled", true);
+                    $("#api-key").prop("disabled", true);
+                } else {
+                    $('#configuration-lock-button').text("Lock");
+                    $("#domain").prop("disabled", false);
+                    $("#from").prop("disabled", false);
+                    $("#api-key").prop("disabled", false);
+                }
+            }
+
+            function updateConfiguration() {
+                if (!lockState) {
+                    credentials.domain = $("#domain").val();
+                    $("#displayed-domain").text(credentials.domain);
+                    credentials.from = $("#from").val();
+                    credentials.apiKey = $("#api-key").val();
+                    save(CREDENTIALS, credentials);
+                }
+            }
+
+            function requireTestEmail() {
+                testMailVerified = false;
+                // disable bulk send and any resend buttons
+                $("#verify-tested-button").prop("disabled", true);
+                $(".bulk-send-button").prop("disabled", true);
+                $(".download-failure-report-button").hide();
+                $(".resend").prop("disabled", true);
+            }
+
+            function hasUnsentTargets() {
+                if (targets && targets.unsent) {
+                    for (let i in targets) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            function enableSending(verified) {
+                testMailVerified = testMailVerified || verified;
+                if (testMailVerified && hasUnsentTargets()) {
+                    // enable bulk send and any resend buttons
+                    $(".bulk-send-button").prop("disabled", false);
+                    $(".resend").prop("disabled", false);
+                } else {
+                    $(".bulk-send-button").prop("disabled", true);
+                    $(".download-failure-report-button").hide();
+                }
+            }
+
+            function updateTestEmailAddress() {
+                testEmailAddress = $("#test-email-address").val();
+                save(TEST_EMAIL_ADDRESS, testEmailAddress);
+            }
+
+            function getMailgunInstance() {
+                return window.mailgunLocal({
+                    apiKey: credentials.apiKey,
+                    domain: credentials.domain
+                });
+            }
+
+            function sendTest() {
+                let mailgun = getMailgunInstance();
+                let message = {
+                    from: credentials.from,
+                    to: testEmailAddress,
+                    subject: $('#subject').val(),
+                    html: $('#html-content').val()
+                };
+                mailgun.messages().send(message, function (err, body) {
+                    if (err) {
+                        toastr.error(err);
+                        return console.error(err);
+                    }
+                    // on successful submission, enable the verify button
+                    toastr.success('Check inbox for test mail');
+                    $("#verify-tested-button").prop("disabled", false);
+                });
+            }
+
+            function loadFile(){
+                let filename = $('#email-address-file').val();
+                if (!filename || filename.length == 0){
+                    return toastr.error('File must be specified');
+                }
+
+                try {
+                    // load file contents into targets
+                    let reader = new FileReader();
+                    let file = $('#email-address-file')[0].files[0];
+                    reader.readAsText(file);
+                    reader.onload = () => {
+                        targets = {
+                            unsent: {},
+                            sent: {},
+                            duplicates: []
+                        };
+                        $('#target-table').empty();
+                        let data = reader.result.replace("\r", "").split("\n");
+                        let targetId = 0;
+                        let actionButtonsDisplayed = false;
+                        for (let i in data) {
+                            // ignore blank lines
+                            if (data[i].length > 0) {
+                                console.log(data[i]);
+                                let row = data[i].split(",");
+                                let target = {
+                                    id: ++targetId,
+                                    email: row[0],
+                                    name: row[0]
+                                };
+                                if (row[1] && row[1].length > 0) {
+                                    target.name = row[1]
+                                }
+                                if (!actionButtonsDisplayed) {
+                                    $('#target-table').append(ACTION_BUTTONS);
+                                    actionButtonsDisplayed = true;
+                                }
+                                if (!targets.unsent[target.email]) {
+                                    targets.unsent[target.email] = target;
+                                    $('#target-table').append(`<tr>
+                                        <td valign="top">${target.email}</td>
+                                        <td valign="top">${target.name}</td>
+                                        <td valign="top" id="${target.id}-status">Unsent</td>
+                                        <td valign="top" id="${target.id}-report" style="width:200px;"></td>
+                                    </tr>`);
+                                } else {
+                                    let errMessage = `duplicate detected: ${target.email}`;
+                                    targets.duplicates.push(target.email);
+                                    console.error(errMessage);
+                                    toastr.error(errMessage);
+                                }
+                            }
+                        }
+                        $('#target-table').append(ACTION_BUTTONS);
+
+                        enableSending();
+                        $('#delivery').show();
+                        $("#target-table-wrapper")[0].scrollIntoView({
+                            behavior: "smooth",
+                            block: "start"
+                        });
+                        toastr.success('Email targets loaded.');
+                        downloadDuplicateReport();
+                    };
+                    reader.onerror = function (err) {
+                        console.error(err);
+                        return toastr.error(err);
+                    };
+                } catch (e) {
+                    console.error(err);
+                    toastr.error(e);
+                }
+            }
+
+            function send(email, mailgun) {
+                mailgun = mailgun || getMailgunInstance();
+                let target = targets.unsent[email];
+                    // update row status to pending
+                    $(`#${target.id}-status`).css("color", "blue");
+                    $(`#${target.id}-status`).text("Sending");
+                    $(`#${target.id}-report`).empty();
+                    // create message
+                    let message = {
+                        from: credentials.from,
+                        to: email,
+                        subject: $('#subject').val(),
+                        html: $('#html-content').val()
+                    };
+                    // send message
+                    mailgun.messages().send(message, function (err, body) {
+                        if (err) {
+                            toastr.error(`${email}: ${err}`);
+                            console.error(`${email}: ${err}`);
+
+                            // update status
+                            $(`#${target.id}-status`).text("Failed");
+                            $(`#${target.id}-status`).css("color","red");
+
+                            // update report and provide individual resend button
+                            target.report = err;
+                            let report = `
+                                <i>${err}</i>
+                                <br />
+                                <button onclick="send('${email}')">Resend</button>
+                            `;
+                            $(`#${target.id}-report`).html(report);
+
+                            // show failure report download button
+                            $('.download-failure-report-button').show();
+                            return;
+                        }
+
+                        // move to sent targets
+                        targets.sent[email] = target;
+                        delete targets.unsent[email];
+
+                        // update status
+                        $(`#${target.id}-status`).text("Sent");
+                        $(`#${target.id}-status`).css("color","green");
+                        delete target.report;
+
+                        determineDone();
+                    });
+            }
+
+            function bulkSend() {
+                for (let email in targets.unsent) {
+                    send(email, getMailgunInstance());
+                }
+            }
+
+            function determineDone() {
+                if (!hasUnsentTargets()) {
+                    toastr.success("all emails sent successfully");
+                    $(".bulk-send-button").prop("disabled", true);
+                    $('.download-failure-report-button').hide();
+                }
+            }
+
+            // see https://stackoverflow.com/a/18197341/2860309
+            function download(filename, text) {
+                var element = document.createElement('a');
+                element.setAttribute('href', 'data:text/plain;charset=utf-8,' + encodeURIComponent(text));
+                element.setAttribute('download', filename);
+
+                element.style.display = 'none';
+                document.body.appendChild(element);
+
+                element.click();
+
+                document.body.removeChild(element);
+            }
+
+            function downloadDuplicateReport() {
+                if (!targets || targets.duplicates.length == 0) {
+                    toastr.info("no duplicates found");
+                    return;
+                }
+
+                let text = "";
+                for (let i in targets.duplicates) {
+                    text += targets.duplicates[i] + "\n";
+                }
+                download("duplicate-report.csv", text);
+            }
+
+            function downloadFailureReport() {
+                if (!hasUnsentTargets()) {
+                    toastr.info("no unsent emails found");
+                    return;
+                }
+
+                let text = "";
+                for (let email in targets.unsent) {
+                    text += email + "," + targets.unsent[email].report + "\n";
+                }
+                download("failure-report.csv", text);
+            }
+
+            // Call this code when the page is done loading.
+            $(function () {
+                // load locally stored values
+                credentials = loadWithDefault(CREDENTIALS, {
+                    domain: "",
+                    from: "",
+                    apiKey: ""
+                });
+                $("#domain").val(credentials.domain);
+                if (credentials.domain.length > 0) {
+                    $("#displayed-domain").text(credentials.domain);
+                }
+                $("#from").val(credentials.from);
+                $("#api-key").val(credentials.apiKey);
+
+                lockState = loadWithDefault(LOCK_STATE, false);
+                lockUnlockFields();
+
+                testEmailAddress = loadWithDefault(TEST_EMAIL_ADDRESS, "");
+                $("#test-email-address").val(testEmailAddress);
+
+                requireTestEmail();
+
+                // Check for the various File API support.
+                if (window.File && window.FileReader && window.FileList && window.Blob) {
+                    console.log('file handling available');
+                } else {
+                    console.log('file handling not available');
+                    toastr.error('file handling not available');
+                }
+            });
+        </script>
+    </head>
+    <body>
+        <center>
+        <div style="width:500px;">
+        <h1>Mailgun Web Interface</h1>
+        <b>A simple web interface for non-devs to send emails using mailgun by exposing
+        mailgun's node.js module to the browser client.
+        <br /><br />
+        If you've found this tool useful,
+        <a href="https://www.industrialcuriosity.com/p/donate.html" target="_blank">please
+        consider making a donation</a>!</b>
+        <br />
+        <br />
+        Once the page has loaded, the only information that will be transmitted will be via the
+        official mailgun javascript module.
+        If you would like to inspect the security of this tool, please feel free to review the code at
+        <a href="https://github.com/therightstuff/mailgun-web-interface-js" target="_blank">https://github.com/therightstuff/mailgun-web-interface-js</a>
+        and open an issue if you have any specific questions or concerns.
+        <br />
+        <br />
+        </div>
+        <h2>Mailgun Configuration</h2>
+        <div style="width:500px;">
+        Enter your <b>domain name</b>, <b>from address</b> and <b>API key</b> in the input
+        fields where indicated. Your domain must be configured and active.
+        <ol style="text-align: left">You can retrieve your API key as follows:
+            <li>Login to your mailgun.com account</li>
+            <li>Select Settings</li>
+            <li>Select API Keys</li>
+            <li>Click the "View" button (the eye) for "Private API Key"</li>
+        </ol>
+        These will be saved locally to your browser and will not be transmitted or stored
+        except as used by the official mailgun module.
+        <br />
+        <br />
+        To avoid accidentally updating the configuration, you can <b>"Lock Configuration"</b>,
+        and then <b>Unlock Configuration</b> only when necessary.
+        <br />
+        <br />
+        </div>
+        <table>
+            <tr>
+                <td colspan="2" align="center">
+                    <button id="configuration-lock-button" onclick="lockUnlock()">---</button>
+                </td>
+            </tr>
+            <tr>
+                <td style="text-align: center">Domain:</td>
+                <td>
+                    <input id="domain"
+                        size="40" style="text-align: center" placeholder="domain.com"
+                        onchange="updateConfiguration()" oninput="updateConfiguration()" />
+                </td>
+            </tr>
+            <tr>
+                <td style="text-align: center">From address:</td>
+                <td>
+                    <input id="from"
+                        size="40" style="text-align: center" placeholder="from.address"
+                        onchange="updateConfiguration()" oninput="updateConfiguration()" />
+                    @<span id="displayed-domain">domain.com</span>
+                </td>
+            </tr>
+            <tr>
+                <td style="text-align: center">Private API Key:</td>
+                <td>
+                    <input id="api-key"
+                        size="40" style="text-align: center" placeholder="key-5ce448a6d172a47da4d62813c7029160"
+                        onchange="updateConfiguration()" oninput="updateConfiguration()" />
+                </td>
+            </tr>
+        </table>
+
+        <h2>Content</h2>
+        <div style="width:500px;">
+            Enter the <b>subject</b> and <b>html content</b> that is to be send as the body of
+            the email in the indicated fields, the click the <b>"Test"</b> button. You will be
+            asked to input an email address where the test mail will be delivered.
+            <br />
+            <br />
+            Until you have submitted a test email to yourself and indicated that you are
+            satisfied with the result, <b>"Bulk Send"</b> will be disabled.
+            <br />
+            <br />
+            <i><b>NOTE</b>: any changes to the content will disable the <b>"Bulk Send"</b> and <b>"Resend"</b> buttons until
+            another test email has been performed and verified. This will not require a reload
+            of the target email list nor affect the existing statuses.</i>
+            <br />
+            <br />
+        </div>
+        <table>
+            <tr>
+                <td style="text-align: center">Subject:</td>
+                <td><input id="subject" size="40" style="text-align: center" placeholder="Enter the email subject here" /></td>
+            </tr>
+            <tr>
+                <td colspan="2" align="center">
+                    Email body / HTML content:
+                </td>
+            </tr>
+            <tr>
+                <td colspan="2" align="center">
+                    <textarea id="html-content" style="width:500px;height:250px"
+                        placeholder="<h1>This is a sample header</h1>"
+                        onchange="requireTestEmail()" oninput="requireTestEmail()"></textarea>
+                </td>
+            </tr>
+            <tr>
+                <td style="text-align: center">Test email address:</td>
+                <td>
+                    <input id="test-email-address"
+                        size="40" style="text-align: center" placeholder="your.email@example.com"
+                        onchange="updateTestEmailAddress()" oninput="updateTestEmailAddress()" />
+                </td>
+            </tr>
+            <tr>
+                <td colspan="2" align="center">
+                    <button onclick="sendTest()">Test</button>
+                    <button id="verify-tested-button" onclick="enableSending(true)">Verify Test Successful</button>
+                </td>
+            </tr>
+        </table>
+
+        <h2>Upload Target Email List</h2>
+        <div style="width:500px;">
+            Use the <b>file upload</b> box to load the target email address list (again,
+            this will be uploaded into the browser locally and not transmitted or stored
+            anywhere else). The list will be parsed and the contents displayed in tabular
+            format.
+            <br />
+            <br />
+            <b><u>File Format</u></b>:
+            <br />
+            The list of target emails must be in csv (comma-separated values) format. Any
+            spreadsheet application can export the results in that format.
+            The expected format is two columns, the first being the email address and the
+            second being an optional display name.
+            <br />
+            <br />
+        </div>
+        <table>
+            <tr>
+                <td colspan="2" align="center">Email Address File: <input type="file" id="email-address-file" /></td>
+            </tr>
+            <tr>
+                <td colspan="2" align="center"><button onclick="loadFile()">Load</button></td>
+            </tr>
+        </table>
+
+        <div id="delivery" style="display:none">
+        <h2>Delivery</h2>
+        <div style="width:500px;">
+            Once you are satisfied that the list of emails is correct press the <b>"Bulk Send"</b>
+            button. You will see the status of each transmission displayed against its target
+            email address, and you will be able to read transmission reports and resend when any
+            of the transmissions has failed. Resending can be done individually or in bulk, the
+            <b>"Bulk Send"</b> button will only attempt to send emails that are <b>"Unsent"</b> or
+            <b>"Failed"</b>.
+            <br />
+            <br />
+        </div>
+        <div>
+            <table id="target-table-wrapper">
+                <thead style="font-weight: bold; background-color: lightgrey;">
+                <tr>
+                    <td>Email address</td>
+                    <td>Name</td>
+                    <td>Status</td>
+                    <td>Report</td>
+                </tr>
+                </thead>
+                <tbody id="target-table"></tbody>
+            </table>
+        </div>
+        </div>
+    </center>
+    </body>
+</html>
