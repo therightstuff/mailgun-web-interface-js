@@ -4,7 +4,8 @@
   "description": "A simple web interface for non-devs to send emails using mailgun",
   "main": "dist/index.html",
   "scripts": {
-    "build": "browserify src/mailgunLocal.js -o dist/js/mailgunLocal.js"
+    "build": "browserify src/mailgunLocal.js -o dist/js/mailgunLocal.js",
+    "package-upgrade": "npx npm-check-updates -u"
   },
   "repository": {
     "type": "git",
@@ -23,8 +24,8 @@
   },
   "homepage": "https://github.com/therightstuff/mailgun-web-interface-js#readme",
   "devDependencies": {
-    "browserify": "^16.5.1",
+    "browserify": "^16.5.2",
     "mailgun-js": "^0.22.0",
-    "mocha": "^7.2.0"
+    "mocha": "^8.1.3"
   }
 }
