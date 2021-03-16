@@ -117,7 +117,7 @@
             function sendTest() {
                 let mailgun = getMailgunInstance();
                 let message = {
-                    from: credentials.from,
+                    from: `${credentials.from}@${credentials.domain}`,
                     to: testEmailAddress,
                     subject: $('#subject').val(),
                     html: $('#html-content').val()
