@@ -54,11 +54,13 @@
                     $("#domain").prop("disabled", true);
                     $("#from").prop("disabled", true);
                     $("#api-key").prop("disabled", true);
+                    $("#eu-hosted").prop("disabled", true);
                 } else {
                     $('#configuration-lock-button').text("Lock");
                     $("#domain").prop("disabled", false);
                     $("#from").prop("disabled", false);
                     $("#api-key").prop("disabled", false);
+                    $("#eu-hosted").prop("disabled", false);
                 }
             }
 
@@ -68,8 +70,8 @@
                     $("#displayed-domain").text(credentials.domain);
                     credentials.from = $("#from").val();
                     credentials.apiKey = $("#api-key").val();
-                    save(CREDENTIALS, credentials);
                     credentials.isEU = $("#eu-hosted").prop("checked") == true ? true : false;
+                    save(CREDENTIALS, credentials);
                 }
             }
 
@@ -135,7 +137,7 @@
                 })
                 .catch(err => {
                     toastr.error(err);
-                    console.error(err);
+                    console.log(err);
                 });
             }
 
@@ -333,6 +335,9 @@
                 }
                 $("#from").val(credentials.from);
                 $("#api-key").val(credentials.apiKey);
+                if (credentials.isEU) {
+                    $("#eu-hosted").prop("checked", true);
+                }
 
                 lockState = loadWithDefault(LOCK_STATE, false);
                 lockUnlockFields();
