@@ -25,7 +25,10 @@
   "homepage": "https://github.com/therightstuff/mailgun-web-interface-js#readme",
   "devDependencies": {
     "browserify": "^17.0.0",
-    "mailgun-js": "^0.22.0",
     "mocha": "^8.3.2"
+  },
+  "dependencies": {
+    "form-data": "^4.0.0",
+    "mailgun.js": "^3.3.0"
   }
 }

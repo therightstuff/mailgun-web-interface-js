@@ -69,6 +69,7 @@
                     credentials.from = $("#from").val();
                     credentials.apiKey = $("#api-key").val();
                     save(CREDENTIALS, credentials);
+                    credentials.isEU = $("#eu-hosted").prop("checked") == true ? true : false;
                 }
             }
 
@@ -108,10 +109,14 @@
             }
 
             function getMailgunInstance() {
-                return window.mailgunLocal({
-                    apiKey: credentials.apiKey,
-                    domain: credentials.domain
-                });
+                let instanceOptions = {
+                    username: 'api',
+                    key: credentials.apiKey
+                };
+                if (credentials.isEU) {
+                    instanceOptions.url = 'https://api.eu.mailgun.net';
+                }
+                return window.mailgunLocal.client(instanceOptions);
             }
 
             function sendTest() {
@@ -122,14 +127,15 @@
                     subject: $('#subject').val(),
                     html: $('#html-content').val()
                 };
-                mailgun.messages().send(message, function (err, body) {
-                    if (err) {
-                        toastr.error(err);
-                        return console.error(err);
-                    }
-                    // on successful submission, enable the verify button
+                mailgun.messages.create(credentials.domain, message)
+                .then(msg => {
+                    console.log(`success: `, msg)
                     toastr.success('Check inbox for test mail');
                     $("#verify-tested-button").prop("disabled", false);
+                })
+                .catch(err => {
+                    toastr.error(err);
+                    console.error(err);
                 });
             }
 
@@ -322,7 +328,7 @@
                     apiKey: ""
                 });
                 $("#domain").val(credentials.domain);
-                if (credentials.domain.length > 0) {
+                if (credentials.domain && credentials.domain.length > 0) {
                     $("#displayed-domain").text(credentials.domain);
                 }
                 $("#from").val(credentials.from);
@@ -413,6 +419,15 @@
                 <td>
                     <input id="api-key"
                         size="40" style="text-align: center" placeholder="key-5ce448a6d172a47da4d62813c7029160"
+                        onchange="updateConfiguration()" oninput="updateConfiguration()" />
+                </td>
+            </tr>
+            <tr>
+                <td></td>
+                <td>
+                    Is your mailgun account is EU hosted?
+                    <input id="eu-hosted"
+                        type="checkbox"
                         onchange="updateConfiguration()" oninput="updateConfiguration()" />
                 </td>
             </tr>

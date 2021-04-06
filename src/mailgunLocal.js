@@ -15,5 +15,7 @@
         });
 */
 
+const formData = require('form-data');
+const Mailgun = require('mailgun.js');
 // update the browser's mailgunLocal object
-window.mailgunLocal = require('mailgun-js');
+window.mailgunLocal = new Mailgun(formData);
